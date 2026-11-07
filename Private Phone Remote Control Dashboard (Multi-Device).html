@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Private Phone Remote Control Dashboard (Multi-Device)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- PeerJS Library for Real P2P Remote Control -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .glass-panel {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .pulse-online {
+            box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(34, 197, 94, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen pb-12">
+
+    <!-- Header Navigation -->
+    <header class="border-b border-slate-800 bg-slate-900/80 sticky top-0 z-50 backdrop-blur-md">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-wrap justify-between items-center gap-4">
+            <div class="flex items-center gap-3">
+                <div class="p-2.5 bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 rounded-xl">
+                    <i class="fa-solid fa-mobile-retro text-xl"></i>
+                </div>
+                <div>
+                    <h1 class="font-bold text-lg text-white leading-tight flex items-center gap-2">
+                        PrivGuard Controller
+                        <span class="text-xs font-normal px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">HTML-Client Link</span>
+                    </h1>
+                    <p class="text-xs text-slate-400">Aktif: <span id="current-device-display" class="font-bold text-indigo-400">Samsung Galaxy S21 (HP-2 Rumah)</span></p>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-2 sm:gap-3 flex-wrap">
+                <!-- Select Device Dropdown -->
+                <div class="relative">
+                    <select id="device-selector" onchange="switchDevice(this.value)" class="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-lg px-3 py-2 font-medium focus:outline-none focus:border-indigo-500 cursor-pointer">
+                        <option value="dev1">📱 HP-2 Rumah (Galaxy S21)</option>
+                        <option value="dev2">📱 HP-3 Mobil (Xiaomi Pad)</option>
+                    </select>
+                </div>
+
+                <button onclick="openModal('add-device-modal')" class="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-medium transition flex items-center gap-1.5 shadow-lg shadow-indigo-600/20">
+                    <i class="fa-solid fa-plus"></i> Tambah HP
+                </button>
+
+                <button onclick="openModal('setup-modal')" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 rounded-lg text-xs font-medium transition flex items-center gap-1.5">
+                    <i class="fa-solid fa-file-code text-amber-400"></i> Ambil File Client HTML
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 space-y-6">
+
+        <!-- Quick Switcher Bar / Device List Status -->
+        <div class="glass-panel p-4 rounded-xl flex items-center justify-between gap-4 overflow-x-auto">
+            <div class="flex items-center gap-3">
+                <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Perangkat Terhubung:</span>
+                <div id="device-badges" class="flex items-center gap-2">
+                    <button onclick="switchDevice('dev1')" id="badge-dev1" class="px-3 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-2 bg-indigo-600/30 border-indigo-500 text-indigo-200">
+                        <span class="w-2 h-2 rounded-full bg-emerald-500 pulse-online"></span>
+                        HP-2 Rumah (Terhubung)
+                    </button>
+                    <button onclick="switchDevice('dev2')" id="badge-dev2" class="px-3 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-2 bg-slate-800/80 border-slate-700 text-slate-400 hover:text-slate-200">
+                        <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+                        HP-3 Mobil (Standby)
+                    </button>
+                </div>
+            </div>
+            <div class="text-xs text-slate-400 flex items-center gap-2 whitespace-nowrap">
+                <i class="fa-solid fa-shield-cat text-emerald-400"></i> Tanpa Install App dari Play Store
+            </div>
+        </div>
+
+        <!-- Top Telemetry Cards -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <!-- Battery Card -->
+            <div class="glass-panel p-4 rounded-xl space-y-2">
+                <div class="flex justify-between items-center text-slate-400 text-xs">
+                    <span>Baterai HP Target</span>
+                    <i id="battery-icon" class="fa-solid fa-battery-three-quarters text-emerald-400 text-sm"></i>
+                </div>
+                <div class="flex items-baseline gap-2">
+                    <span id="battery-level" class="text-2xl font-bold text-white">82%</span>
+                    <span id="charging-status" class="text-xs text-slate-400">Terhubung Charger</span>
+                </div>
+                <div class="w-full bg-slate-800 rounded-full h-1.5">
+                    <div id="battery-bar" class="bg-emerald-500 h-1.5 rounded-full" style="width: 82%"></div>
+                </div>
+            </div>
+
+            <!-- Signal & Network -->
+            <div class="glass-panel p-4 rounded-xl space-y-2">
+                <div class="flex justify-between items-center text-slate-400 text-xs">
+                    <span>Koneksi Browser</span>
+                    <i class="fa-solid fa-network-wired text-indigo-400 text-sm"></i>
+                </div>
+                <div class="flex items-baseline gap-2">
+                    <span id="network-type" class="text-2xl font-bold text-white">P2P Ready</span>
+                </div>
+                <p class="text-xs text-slate-400">WebRTC ID: <span id="device-id-code" class="font-mono text-slate-300">PRIV-HP2-HOME</span></p>
+            </div>
+
+            <!-- Camera Status -->
+            <div class="glass-panel p-4 rounded-xl space-y-2">
+                <div class="flex justify-between items-center text-slate-400 text-xs">
+                    <span>Akses Kamera/Mic</span>
+                    <i class="fa-solid fa-video text-cyan-400 text-sm"></i>
+                </div>
+                <div class="flex items-baseline gap-2">
+                    <span class="text-2xl font-bold text-white">Siap</span>
+                    <span class="text-xs text-emerald-400">Izin Aktif</span>
+                </div>
+                <p class="text-xs text-slate-400">Depan & Belakang OK</p>
+            </div>
+
+            <!-- Heartbeat -->
+            <div class="glass-panel p-4 rounded-xl space-y-2">
+                <div class="flex justify-between items-center text-slate-400 text-xs">
+                    <span>Status Client</span>
+                    <i class="fa-solid fa-bolt text-amber-400 text-sm"></i>
+                </div>
+                <div class="flex items-baseline gap-2">
+                    <span id="last-ping" class="text-2xl font-bold text-emerald-400">ONLINE</span>
+                </div>
+                <p class="text-xs text-slate-400">Tab HTML aktif di HP</p>
+            </div>
+        </div>
+
+        <!-- Main Dashboard Split -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+            <!-- Left Column: Quick Actions & Camera Feed -->
+            <div class="lg:col-span-2 space-y-6">
+
+                <!-- Control Panel Grid -->
+                <div class="glass-panel p-5 rounded-2xl">
+                    <h2 class="text-sm font-semibold text-slate-300 mb-4 flex items-center gap-2">
+                        <i class="fa-solid fa-gamepad text-indigo-400"></i> Perintah Jarak Jauh ke Client
+                    </h2>
+                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+
+                        <!-- Action: Alarm -->
+                        <button onclick="triggerAction('Bunyikan Sirine / Speaker', 'alarm')" class="p-4 bg-slate-800/60 hover:bg-red-500/20 border border-slate-700/60 hover:border-red-500/50 rounded-xl text-left transition group">
+                            <div class="w-10 h-10 bg-red-500/10 text-red-400 rounded-lg flex items-center justify-center mb-2 group-hover:scale-110 transition">
+                                <i class="fa-solid fa-bell text-lg"></i>
+                            </div>
+                            <div class="font-semibold text-sm text-slate-200">Bunyikan Sirene</div>
+                            <div class="text-[11px] text-slate-400">Bunyi Keras di HP</div>
+                        </button>
+
+                        <!-- Action: Capture Photo -->
+                        <button onclick="triggerAction('Jepret Foto Seketika', 'camera')" class="p-4 bg-slate-800/60 hover:bg-indigo-500/20 border border-slate-700/60 hover:border-indigo-500/50 rounded-xl text-left transition group">
+                            <div class="w-10 h-10 bg-indigo-500/10 text-indigo-400 rounded-lg flex items-center justify-center mb-2 group-hover:scale-110 transition">
+                                <i class="fa-solid fa-camera text-lg"></i>
+                            </div>
+                            <div class="font-semibold text-sm text-slate-200">Ambil Foto HP</div>
+                            <div class="text-[11px] text-slate-400">Kamera Depan/Belakang</div>
+                        </button>
+
+                        <!-- Action: GPS Track -->
+                        <button onclick="triggerAction('Lacak Lokasi GPS HP', 'gps')" class="p-4 bg-slate-800/60 hover:bg-emerald-500/20 border border-slate-700/60 hover:border-emerald-500/50 rounded-xl text-left transition group">
+                            <div class="w-10 h-10 bg-emerald-500/10 text-emerald-400 rounded-lg flex items-center justify-center mb-2 group-hover:scale-110 transition">
+                                <i class="fa-solid fa-location-crosshairs text-lg"></i>
+                            </div>
+                            <div class="font-semibold text-sm text-slate-200">Update Lokasi</div>
+                            <div class="text-[11px] text-slate-400">Minta Koordinat GPS</div>
+                        </button>
+
+                        <!-- Action: Flashlight -->
+                        <button onclick="triggerAction('Nyalakan Senter HP', 'flash')" class="p-4 bg-slate-800/60 hover:bg-amber-500/20 border border-slate-700/60 hover:border-amber-500/50 rounded-xl text-left transition group">
+                            <div class="w-10 h-10 bg-amber-500/10 text-amber-400 rounded-lg flex items-center justify-center mb-2 group-hover:scale-110 transition">
+                                <i class="fa-solid fa-lightbulb text-lg"></i>
+                            </div>
+                            <div class="font-semibold text-sm text-slate-200">Senter / Flash</div>
+                            <div class="text-[11px] text-slate-400">Toggle Lampu Senter</div>
+                        </button>
+
+                        <!-- Action: TTS Speech -->
+                        <button onclick="openModal('tts-modal')" class="p-4 bg-slate-800/60 hover:bg-purple-500/20 border border-slate-700/60 hover:border-purple-500/50 rounded-xl text-left transition group">
+                            <div class="w-10 h-10 bg-purple-500/10 text-purple-400 rounded-lg flex items-center justify-center mb-2 group-hover:scale-110 transition">
+                                <i class="fa-solid fa-volume-high text-lg"></i>
+                            </div>
+                            <div class="font-semibold text-sm text-slate-200">Bicara Suara (TTS)</div>
+                            <div class="text-[11px] text-slate-400">Kirim Pesan Suara</div>
+                        </button>
+
+                        <!-- Action: Vibrate -->
+                        <button onclick="triggerAction('Getarkan HP', 'vibrate')" class="p-4 bg-slate-800/60 hover:bg-rose-500/20 border border-slate-700/60 hover:border-rose-500/50 rounded-xl text-left transition group">
+                            <div class="w-10 h-10 bg-rose-500/10 text-rose-400 rounded-lg flex items-center justify-center mb-2 group-hover:scale-110 transition">
+                                <i class="fa-solid fa-mobile-vibration text-lg"></i>
+                            </div>
+                            <div class="font-semibold text-sm text-slate-200">Getarkan HP</div>
+                            <div class="text-[11px] text-slate-400">Vibration Feedback</div>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- GPS Tracker View -->
+                <div class="glass-panel p-5 rounded-2xl space-y-4">
+                    <div class="flex justify-between items-center">
+                        <h2 class="text-sm font-semibold text-slate-300 flex items-center gap-2">
+                            <i class="fa-solid fa-map-location-dot text-emerald-400"></i> Peta Lokasi HP Terakhir
+                        </h2>
+                        <span class="text-xs text-slate-400" id="gps-coords">Lat: -6.2088, Long: 106.8456</span>
+                    </div>
+
+                    <div class="relative w-full h-64 bg-slate-900 rounded-xl border border-slate-800 overflow-hidden flex items-center justify-center">
+                        <div class="absolute inset-0 bg-[radial-gradient(#334155_1px,transparent_1px)] [background-size:16px_16px] opacity-40"></div>
+                        
+                        <!-- Marker -->
+                        <div class="relative z-10 flex flex-col items-center">
+                            <div id="map-label" class="px-3 py-1 bg-indigo-600 text-white text-[11px] rounded-full shadow-lg mb-2 font-medium">
+                                Samsung Galaxy S21 (HP-2 Rumah)
+                            </div>
+                            <div class="relative">
+                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                <div class="w-7 h-7 bg-emerald-500 rounded-full border-2 border-white flex items-center justify-center text-slate-900 font-bold text-xs shadow-xl">
+                                    <i class="fa-solid fa-mobile text-xs text-white"></i>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="absolute bottom-3 right-3 bg-slate-950/80 px-2 py-1 rounded text-[10px] text-slate-400 font-mono">
+                            Akurasi Browser GPS: ~3 Meter
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Remote Camera Preview -->
+                <div class="glass-panel p-5 rounded-2xl space-y-4">
+                    <div class="flex justify-between items-center">
+                        <h2 class="text-sm font-semibold text-slate-300 flex items-center gap-2">
+                            <i class="fa-solid fa-image text-cyan-400"></i> Hasil Foto Remote Dari HP
+                        </h2>
+                        <span class="text-xs text-slate-400" id="photo-timestamp">Belum ada foto diambil</span>
+                    </div>
+
+                    <div id="camera-frame" class="w-full h-56 bg-slate-900/90 rounded-xl border border-slate-800 flex flex-col items-center justify-center text-slate-500 gap-2">
+                        <i class="fa-solid fa-camera text-3xl opacity-40"></i>
+                        <p class="text-xs">Klik "Ambil Foto HP" untuk mengambil snapshot kamera lingkungan</p>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Right Column: Command Logs & Device Details -->
+            <div class="space-y-6">
+
+                <!-- Active Registered Devices List -->
+                <div class="glass-panel p-5 rounded-2xl space-y-3">
+                    <div class="flex justify-between items-center mb-2">
+                        <h2 class="text-sm font-semibold text-slate-300 flex items-center gap-2">
+                            <i class="fa-solid fa-list-check text-indigo-400"></i> Daftar HP Terdaftar
+                        </h2>
+                        <span class="text-xs text-slate-400 font-mono" id="device-count">2 Perangkat</span>
+                    </div>
+
+                    <div id="registered-devices-list" class="space-y-2 text-xs">
+                        <!-- Dev 1 -->
+                        <div class="p-3 bg-slate-900/90 rounded-xl border border-indigo-500/50 flex justify-between items-center">
+                            <div>
+                                <div class="font-semibold text-white">Samsung Galaxy S21 (HP-2)</div>
+                                <div class="text-[10px] text-slate-400">ID: PRIV-HP2-HOME • Batterai 82%</div>
+                            </div>
+                            <span class="px-2 py-1 bg-emerald-500/20 text-emerald-400 rounded text-[10px]">Active</span>
+                        </div>
+                        <!-- Dev 2 -->
+                        <div class="p-3 bg-slate-900/40 rounded-xl border border-slate-800 flex justify-between items-center opacity-75">
+                            <div>
+                                <div class="font-semibold text-slate-300">Xiaomi Pad (HP-3 Mobil)</div>
+                                <div class="text-[10px] text-slate-400">ID: PRIV-HP3-CAR • Batterai 64%</div>
+                            </div>
+                            <span class="px-2 py-1 bg-amber-500/20 text-amber-400 rounded text-[10px]">Standby</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Command Executed Logs -->
+                <div class="glass-panel p-5 rounded-2xl flex flex-col h-[360px]">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-sm font-semibold text-slate-300 flex items-center gap-2">
+                            <i class="fa-solid fa-terminal text-emerald-400"></i> Terminal Log Realtime
+                        </h2>
+                        <button onclick="clearLogs()" class="text-[11px] text-slate-400 hover:text-slate-200">Clear</button>
+                    </div>
+
+                    <div id="terminal-logs" class="flex-1 bg-slate-950 p-3 rounded-xl border border-slate-800 font-mono text-[11px] overflow-y-auto space-y-1 text-emerald-400">
+                        <p class="text-slate-500">[System] Multi-device dashboard ready.</p>
+                        <p class="text-emerald-400">[P2P] Channel active for dev1 (Samsung Galaxy S21).</p>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+    </main>
+
+    <!-- MODAL: Tambah Device Baru -->
+    <div id="add-device-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+        <div class="glass-panel max-w-md w-full rounded-2xl p-6 border border-slate-700/80 space-y-4">
+            <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                <h3 class="font-bold text-base text-white">Tambah HP Baru ke Dashboard</h3>
+                <button onclick="closeModal('add-device-modal')" class="text-slate-400 hover:text-white">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="space-y-3 text-xs">
+                <div>
+                    <label class="block text-slate-300 mb-1">Nama HP / Perangkat</label>
+                    <input type="text" id="new-device-name" placeholder="Contoh: HP 3 - Kamar Belakang" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-white focus:outline-none focus:border-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-slate-300 mb-1">Custom Kode ID Perangkat (Bebas)</label>
+                    <input type="text" id="new-device-id" placeholder="PRIV-HP-03" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-white focus:outline-none focus:border-indigo-500">
+                </div>
+            </div>
+
+            <div class="flex justify-end gap-2 pt-2">
+                <button onclick="closeModal('add-device-modal')" class="px-3 py-1.5 bg-slate-800 text-slate-300 rounded-lg text-xs">Batal</button>
+                <button onclick="addNewDevice()" class="px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-medium">Tambahkan HP</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Dapatkan Client HTML Code -->
+    <div id="setup-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+        <div class="glass-panel max-w-3xl w-full rounded-2xl p-6 border border-slate-700/80 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                <h3 class="font-bold text-lg text-white flex items-center gap-2">
+                    <i class="fa-solid fa-paper-plane text-amber-400"></i> File Client HTML Khusus HP Target
+                </h3>
+                <button onclick="closeModal('setup-modal')" class="text-slate-400 hover:text-white">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <p class="text-xs text-slate-300 leading-relaxed">
+                Kamu <strong>TIDAK PERLU INSTALL APLIKASI</strong> apapun dari Play Store! Cukup kirim file HTML client di bawah ini (atau buka file/link HTML ini) di Google Chrome / Browser HP ke-2 kamu yang ada di rumah.
+            </p>
+
+            <div class="bg-indigo-950/50 border border-indigo-800/60 p-3 rounded-xl text-xs space-y-1">
+                <div class="font-semibold text-indigo-300">Cara Kerja:</div>
+                <p class="text-slate-300">1. Simpan script HTML di bawah ini menjadi file <code>hp-client.html</code> di HP ke-2 kamu.</p>
+                <p class="text-slate-300">2. Buka file tersebut di browser HP (Chrome) & berikan izin Kamera/Lokasi/Audio saat diminta.</p>
+                <p class="text-slate-300">3. Selesai! HP kamu siap dipantau dan dikontrol 100% secara privat dari dashboard ini.</p>
+            </div>
+
+            <div class="space-y-2">
+                <div class="flex justify-between items-center">
+                    <span class="text-xs font-semibold text-slate-300">Script HTML Client (`hp-client.html`):</span>
+                    <button onclick="copyClientCode()" class="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-medium">
+                        <i class="fa-solid fa-copy"></i> Copy Semua Code
+                    </button>
+                </div>
+                <textarea id="client-code-area" readonly class="w-full h-48 bg-slate-950 p-3 rounded-xl border border-slate-800 font-mono text-[10px] text-slate-300 focus:outline-none select-all"></textarea>
+            </div>
+
+            <div class="flex justify-end pt-2">
+                <button onclick="closeModal('setup-modal')" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-medium">Tutup</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Text to Speech -->
+    <div id="tts-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+        <div class="glass-panel max-w-md w-full rounded-2xl p-6 border border-slate-700/80 space-y-4">
+            <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                <h3 class="font-bold text-base text-white">Suarakan Pesan via Speaker HP</h3>
+                <button onclick="closeModal('tts-modal')" class="text-slate-400 hover:text-white">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="space-y-3 text-xs">
+                <div>
+                    <label class="block text-slate-300 mb-1">Teks Ucapan</label>
+                    <textarea id="tts-text" rows="3" placeholder="Contoh: Halo! HP ini sedang dipantau oleh pemilik." class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-white focus:outline-none focus:border-indigo-500"></textarea>
+                </div>
+            </div>
+
+            <div class="flex justify-end gap-2 pt-2">
+                <button onclick="closeModal('tts-modal')" class="px-3 py-1.5 bg-slate-800 text-slate-300 rounded-lg text-xs">Batal</button>
+                <button onclick="sendTtsSubmit()" class="px-4 py-1.5 bg-purple-600 text-white rounded-lg text-xs font-medium">Kirim Suara Ke HP</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Store Registered Devices Data
+        let activeDeviceId = 'dev1';
+        let devices = {
+            'dev1': { name: 'Samsung Galaxy S21 (HP-2 Rumah)', code: 'PRIV-HP2-HOME', battery: '82%', lat: -6.2088, long: 106.8456 },
+            'dev2': { name: 'Xiaomi Pad (HP-3 Mobil)', code: 'PRIV-HP3-CAR', battery: '64%', lat: -6.1754, long: 106.8272 }
+        };
+
+        // PeerJS Setup for Real Remote Control over Internet
+        let peer = null;
+        let activeConn = null;
+
+        function initPeerServer() {
+            // Setup Dashboard Peer ID
+            peer = new Peer('PRIV-DASHBOARD-MAIN-' + Math.floor(Math.random()*1000));
+            
+            peer.on('open', (id) => {
+                logTerminal(`Dashboard P2P Online. ID Server: ${id}`, 'success');
+                connectToDevice(devices[activeDeviceId].code);
+            });
+
+            peer.on('connection', (conn) => {
+                activeConn = conn;
+                logTerminal(`Terhubung ke HP Client: ${conn.peer}`, 'success');
+                
+                conn.on('data', (data) => {
+                    handleClientTelemetry(data);
+                });
+
+                conn.on('close', () => {
+                    logTerminal(`Koneksi dengan HP terputus!`, 'danger');
+                    document.getElementById('last-ping').innerText = 'OFFLINE';
+                    document.getElementById('last-ping').className = 'text-2xl font-bold text-rose-500';
+                });
+            });
+
+            peer.on('error', (err) => {
+                logTerminal(`Peer Error: ${err.type}`, 'danger');
+            });
+        }
+
+        function connectToDevice(targetCode) {
+            if(!peer) return;
+            logTerminal(`Mencoba menghubungkan ke HP Target (${targetCode})...`, 'info');
+            const conn = peer.connect(targetCode);
+            
+            conn.on('open', () => {
+                activeConn = conn;
+                logTerminal(`Berhasil tersambung jarak jauh ke HP Target!`, 'success');
+                document.getElementById('last-ping').innerText = 'ONLINE';
+                document.getElementById('last-ping').className = 'text-2xl font-bold text-emerald-400';
+            });
+
+            conn.on('data', (data) => {
+                handleClientTelemetry(data);
+            });
+        }
+
+        // BroadcastChannel fallback for same device/browser testing
+        const broadcastChannel = new BroadcastChannel('privguard_channel');
+
+        broadcastChannel.onmessage = (event) => {
+            const data = event.data;
+            if(data && data.deviceId === devices[activeDeviceId]?.code) {
+                handleClientTelemetry(data.payload);
+            }
+        };
+
+        window.addEventListener('load', () => {
+            initPeerServer();
+        });
+
+        function handleClientTelemetry(payload) {
+            if(!payload) return;
+            if(payload.type === 'battery') {
+                document.getElementById('battery-level').innerText = payload.level + '%';
+                document.getElementById('charging-status').innerText = payload.charging ? 'Mengisi Daya' : 'Tidak Di-charge';
+                document.getElementById('battery-bar').style.width = payload.level + '%';
+                logTerminal(`Baterai HP Client: ${payload.level}% (${payload.charging ? 'Charging' : 'Discharging'})`, 'info');
+            } else if(payload.type === 'gps') {
+                document.getElementById('gps-coords').innerText = `Lat: ${payload.lat.toFixed(4)}, Long: ${payload.lng.toFixed(4)}`;
+                logTerminal(`Lokasi GPS diperbarui realtime: ${payload.lat}, ${payload.lng}`, 'success');
+            } else if(payload.type === 'photo_captured') {
+                document.getElementById('photo-timestamp').innerText = new Date().toLocaleTimeString();
+                document.getElementById('camera-frame').innerHTML = `<img src="${payload.image}" class="w-full h-full object-cover rounded-xl" />`;
+                logTerminal(`Foto jarak jauh diterima dari HP!`, 'success');
+            } else if(payload.type === 'heartbeat') {
+                document.getElementById('last-ping').innerText = 'ONLINE';
+                document.getElementById('last-ping').className = 'text-2xl font-bold text-emerald-400';
+            }
+        }
+
+        // Trigger Remote Action
+        function triggerAction(actionName, actionType) {
+            const currentDev = devices[activeDeviceId];
+            logTerminal(`Mengirim perintah ke <strong>${currentDev.name}</strong>: [${actionName}]...`, 'warning');
+
+            const payload = {
+                targetDeviceId: currentDev.code,
+                command: actionType.toUpperCase()
+            };
+
+            // Kirim via PeerJS WebRTC Connection
+            if(activeConn && activeConn.open) {
+                activeConn.send(payload);
+                logTerminal(`[WebRTC P2P] Perintah "${actionName}" terkirim langsung via Cloud Peer.`, 'success');
+            } else {
+                // Fallback BroadcastChannel jika dalam satu HP
+                broadcastChannel.postMessage(payload);
+                logTerminal(`Sinyal perintah "${actionName}" terkirim ke channel client (${currentDev.code}).`, 'warning');
+            }
+        }
+
+        // Switch Active Device
+        function switchDevice(devKey) {
+            if(!devices[devKey]) return;
+            activeDeviceId = devKey;
+
+            const dev = devices[devKey];
+            document.getElementById('device-selector').value = devKey;
+            document.getElementById('current-device-display').innerText = dev.name;
+            document.getElementById('map-label').innerText = dev.name;
+            document.getElementById('device-id-code').innerText = dev.code;
+            document.getElementById('battery-level').innerText = dev.battery;
+            document.getElementById('gps-coords').innerText = `Lat: ${dev.lat}, Long: ${dev.long}`;
+
+            // Try reconnecting to new target
+            connectToDevice(dev.code);
+
+            logTerminal(`Beralih kontrol ke: <strong>${dev.name}</strong>`, 'info');
+        }
+<!-- ... existing code -->
